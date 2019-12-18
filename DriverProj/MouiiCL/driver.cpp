@@ -1,0 +1,253 @@
+/*++
+
+Copyright (c) 2019 changeofpace. All rights reserved.
+
+Use of this source code is governed by the MIT license. See the 'LICENSE' file
+for more information.
+
+--*/
+
+#include "driver.h"
+
+#include <ntddmou.h>
+
+#include "debug.h"
+
+#include "../Common/ioctl.h"
+
+
+//=============================================================================
+// Private Types
+//=============================================================================
+typedef struct _DRIVER_CONTEXT {
+    HANDLE DeviceHandle;
+} DRIVER_CONTEXT, *PDRIVER_CONTEXT;
+
+
+//=============================================================================
+// Module Globals
+//=============================================================================
+static DRIVER_CONTEXT g_DriverContext = {};
+
+
+//=============================================================================
+// Meta Interface
+//=============================================================================
+_Use_decl_annotations_
+BOOL
+MouiiIoInitialization()
+{
+    HANDLE hDevice = INVALID_HANDLE_VALUE;
+    BOOL status = TRUE;
+
+    hDevice = CreateFileW(
+        LOCAL_DEVICE_PATH_U,
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    if (INVALID_HANDLE_VALUE == hDevice)
+    {
+        status = FALSE;
+        goto exit;
+    }
+
+    //
+    // Initialize the global context.
+    //
+    g_DriverContext.DeviceHandle = hDevice;
+
+exit:
+    if (!status)
+    {
+        if (INVALID_HANDLE_VALUE != hDevice)
+        {
+            VERIFY(CloseHandle(hDevice));
+        }
+    }
+
+    return status;
+}
+
+
+VOID
+MouiiIoTermination()
+{
+    VERIFY(CloseHandle(g_DriverContext.DeviceHandle));
+}
+
+
+//=============================================================================
+// Public Interface
+//=============================================================================
+_Use_decl_annotations_
+BOOL
+MouiiIoInitializeMouseDeviceStackContext(
+    PMOUSE_DEVICE_STACK_INFORMATION pDeviceStackInformation
+)
+{
+    MOUSE_DEVICE_STACK_INFORMATION DeviceStackInformation = {};
+    DWORD cbReturned = 0;
+    BOOL status = TRUE;
+
+    //
+    // Zero out parameters.
+    //
+    RtlSecureZeroMemory(
+        pDeviceStackInformation,
+        sizeof(*pDeviceStackInformation));
+
+	unsigned long ctl_code = IOCTL_INITIALIZE_MOUSE_DEVICE_STACK_CONTEXT;
+
+    status = DeviceIoControl(
+        g_DriverContext.DeviceHandle,
+        IOCTL_INITIALIZE_MOUSE_DEVICE_STACK_CONTEXT,
+        NULL,
+        0,
+        &DeviceStackInformation,
+        sizeof(DeviceStackInformation),
+        &cbReturned,
+        NULL);
+    if (!status)
+    {
+        goto exit;
+    }
+
+    //
+    // Set out parameters.
+    //
+    RtlCopyMemory(
+        pDeviceStackInformation,
+        &DeviceStackInformation,
+        sizeof(MOUSE_DEVICE_STACK_INFORMATION));
+
+exit:
+    return status;
+}
+
+
+_Use_decl_annotations_
+BOOL
+MouiiIoInjectMouseButtonInput(
+    ULONG_PTR ProcessId,
+    USHORT ButtonFlags,
+    USHORT ButtonData
+)
+{
+    INJECT_MOUSE_BUTTON_INPUT_REQUEST Request = {};
+    DWORD cbReturned = 0;
+    BOOL status = TRUE;
+
+    //
+    // Initialize the request.
+    //
+    Request.ProcessId = ProcessId;
+    Request.ButtonFlags = ButtonFlags;
+    Request.ButtonData = ButtonData;
+
+    status = DeviceIoControl(
+        g_DriverContext.DeviceHandle,
+        IOCTL_INJECT_MOUSE_BUTTON_INPUT,
+        &Request,
+        sizeof(Request),
+        NULL,
+        0,
+        &cbReturned,
+        NULL);
+    if (!status)
+    {
+        goto exit;
+    }
+
+exit:
+    return status;
+}
+
+
+_Use_decl_annotations_
+BOOL
+MouiiIoInjectMouseMovementInput(
+    ULONG_PTR ProcessId,
+    USHORT IndicatorFlags,
+    LONG MovementX,
+    LONG MovementY
+)
+{
+    INJECT_MOUSE_MOVEMENT_INPUT_REQUEST Request = {};
+    DWORD cbReturned = 0;
+    BOOL status = TRUE;
+
+    //
+    // Initialize the request.
+    //
+    Request.ProcessId = ProcessId;
+    Request.IndicatorFlags = IndicatorFlags;
+    Request.MovementX = MovementX;
+    Request.MovementY = MovementY;
+
+	int size = sizeof(Request);
+	size = sizeof(Request.ProcessId);
+	size = sizeof(Request.IndicatorFlags);
+	size = sizeof(Request.MovementX);
+	size = sizeof(Request.MovementY);
+
+    status = DeviceIoControl(
+        g_DriverContext.DeviceHandle,
+        IOCTL_INJECT_MOUSE_MOVEMENT_INPUT,
+        &Request,
+        sizeof(Request),
+        NULL,
+        0,
+        &cbReturned,
+        NULL);
+    if (!status)
+    {
+        goto exit;
+    }
+
+exit:
+    return status;
+}
+
+
+_Use_decl_annotations_
+BOOL
+MouiiIoInjectMouseInputPacket(
+    ULONG_PTR ProcessId,
+    BOOL UseButtonDevice,
+    PMOUSE_INPUT_DATA pInputPacket
+)
+{
+    INJECT_MOUSE_INPUT_PACKET_REQUEST Request = {};
+    DWORD cbReturned = 0;
+    BOOL status = TRUE;
+
+    //
+    // Initialize the request.
+    //
+    Request.ProcessId = ProcessId;
+    Request.UseButtonDevice = UseButtonDevice ? TRUE : FALSE;
+    RtlCopyMemory(
+        &Request.InputPacket,
+        pInputPacket,
+        sizeof(MOUSE_INPUT_DATA));
+
+    status = DeviceIoControl(
+        g_DriverContext.DeviceHandle,
+        IOCTL_INJECT_MOUSE_INPUT_PACKET,
+        &Request,
+        sizeof(Request),
+        NULL,
+        0,
+        &cbReturned,
+        NULL);
+    if (!status)
+    {
+        goto exit;
+    }
+
+exit:
+    return status;
+}
